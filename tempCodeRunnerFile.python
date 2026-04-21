@@ -1,0 +1,30 @@
+import string
+
+def common_chars(strs):
+    dicts = []
+
+    # make one alphabet dictionary for each string
+    for word in strs:
+        d = {char: None for char in string.ascii_lowercase}
+        for j, char in enumerate(word):
+            d[char] = j
+        dicts.append(d)
+
+    result = ""
+
+    # iterate through alphabet keys
+    for key in dicts[0]:
+        first_value = dicts[0][key]
+
+        if first_value is not None:
+            match = True
+
+            for d in dicts[1:]:
+                if d[key] != first_value:
+                    match = False
+                    break
+
+            if match:
+                result += key
+
+    return result
