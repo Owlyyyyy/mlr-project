@@ -21,6 +21,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
 from sklearn.neighbors import KNeighborsClassifier
@@ -82,18 +84,20 @@ x_train, x_test, y_train, y_test = train_test_split(
     x, y, test_size=0.2, random_state=42, stratify=y
 )
 
-scaler = StandardScaler()
-x_train = x_train.copy()
-x_test = x_test.copy()
-x_train[num_cols] = scaler.fit_transform(x_train[num_cols])
-x_test[num_cols] = scaler.transform(x_test[num_cols])
-
 print(f"\nTrain set: {len(x_train)} samples")
 print(f"Test set:  {len(x_test)} samples")
 
 skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("scale_num", StandardScaler(), num_cols),
+    ],
+    remainder="passthrough"
+)
+
 results = {}
+fitted_models = {}
 
 print("\n--- Classifier 1: KNN ---")
 
@@ -101,15 +105,21 @@ k_values = range(1, 31)
 mean_scores = []
 
 for k in k_values:
-    knn = KNeighborsClassifier(n_neighbors=k)
-    scores = cross_val_score(knn, x_train, y_train, cv=skf, scoring="accuracy")
+    pipe = Pipeline([
+        ("preprocessor", preprocessor),
+        ("classifier", KNeighborsClassifier(n_neighbors=k))
+    ])
+    scores = cross_val_score(pipe, x_train, y_train, cv=skf, scoring="accuracy")
     mean_scores.append(scores.mean())
 
 best_k = k_values[np.argmax(mean_scores)]
 print(f"Best k: {best_k} (CV accuracy: {max(mean_scores):.4f})")
 print(f"Optimal because k={best_k} gives the highest mean 5-fold stratified CV accuracy.")
 
-knn_best = KNeighborsClassifier(n_neighbors=best_k)
+knn_best = Pipeline([
+    ("preprocessor", preprocessor),
+    ("classifier", KNeighborsClassifier(n_neighbors=best_k))
+])
 knn_best.fit(x_train, y_train)
 y_pred_knn = knn_best.predict(x_test)
 y_prob_knn = knn_best.predict_proba(x_test)[:, 1]
@@ -122,6 +132,7 @@ results["KNN"] = {
     "tpr": tpr_knn,
     "auc": roc_auc_score(y_test, y_prob_knn),
 }
+fitted_models["KNN"] = knn_best
 print(f"Test Accuracy: {results['KNN']['accuracy']:.4f}")
 print(f"Test AUC: {results['KNN']['auc']:.4f}")
 
@@ -141,10 +152,13 @@ param_grid = [
 
 mean_scores = []
 for params in param_grid:
-    lda = LinearDiscriminantAnalysis(
-        solver=params["solver"], shrinkage=params["shrinkage"]
-    )
-    scores = cross_val_score(lda, x_train, y_train, cv=skf, scoring="accuracy")
+    pipe = Pipeline([
+        ("preprocessor", preprocessor),
+        ("classifier", LinearDiscriminantAnalysis(
+            solver=params["solver"], shrinkage=params["shrinkage"]
+        ))
+    ])
+    scores = cross_val_score(pipe, x_train, y_train, cv=skf, scoring="accuracy")
     mean_scores.append(scores.mean())
 
 best_index = int(np.argmax(mean_scores))
@@ -152,9 +166,12 @@ best_params = param_grid[best_index]
 print(f"Best parameters: {best_params} (CV accuracy: {mean_scores[best_index]:.4f})")
 print("Optimal because this solver/shrinkage combination gives the highest mean 5-fold stratified CV accuracy.")
 
-lda_best = LinearDiscriminantAnalysis(
-    solver=best_params["solver"], shrinkage=best_params["shrinkage"]
-)
+lda_best = Pipeline([
+    ("preprocessor", preprocessor),
+    ("classifier", LinearDiscriminantAnalysis(
+        solver=best_params["solver"], shrinkage=best_params["shrinkage"]
+    ))
+])
 lda_best.fit(x_train, y_train)
 y_pred_lda = lda_best.predict(x_test)
 y_prob_lda = lda_best.predict_proba(x_test)[:, 1]
@@ -167,6 +184,7 @@ results["LDA"] = {
     "tpr": tpr_lda,
     "auc": roc_auc_score(y_test, y_prob_lda),
 }
+fitted_models["LDA"] = lda_best
 print(f"Test Accuracy: {results['LDA']['accuracy']:.4f}")
 print(f"Test AUC: {results['LDA']['auc']:.4f}")
 
@@ -176,15 +194,21 @@ C_values = [0.001, 0.01, 0.1, 1, 10, 100]
 mean_scores = []
 
 for C in C_values:
-    logit = LogisticRegression(C=C, max_iter=5000)
-    scores = cross_val_score(logit, x_train, y_train, cv=skf, scoring="accuracy")
+    pipe = Pipeline([
+        ("preprocessor", preprocessor),
+        ("classifier", LogisticRegression(C=C, max_iter=5000))
+    ])
+    scores = cross_val_score(pipe, x_train, y_train, cv=skf, scoring="accuracy")
     mean_scores.append(scores.mean())
 
 best_C = C_values[np.argmax(mean_scores)]
 print(f"Best C: {best_C} (CV accuracy: {max(mean_scores):.4f})")
 print(f"Optimal because C={best_C} gives the highest mean 5-fold stratified CV accuracy.")
 
-logit_best = LogisticRegression(C=best_C, max_iter=5000)
+logit_best = Pipeline([
+    ("preprocessor", preprocessor),
+    ("classifier", LogisticRegression(C=best_C, max_iter=5000))
+])
 logit_best.fit(x_train, y_train)
 y_pred_logit = logit_best.predict(x_test)
 y_prob_logit = logit_best.predict_proba(x_test)[:, 1]
@@ -197,6 +221,7 @@ results["Logistic Regression"] = {
     "tpr": tpr_logit,
     "auc": roc_auc_score(y_test, y_prob_logit),
 }
+fitted_models["Logistic Regression"] = logit_best
 print(f"Test Accuracy: {results['Logistic Regression']['accuracy']:.4f}")
 print(f"Test AUC: {results['Logistic Regression']['auc']:.4f}")
 
@@ -304,23 +329,17 @@ patient_raw = {
 }
 
 patient_df = pd.DataFrame([patient_raw])
+
 for col in x_train.columns:
     if col not in patient_df.columns:
         patient_df[col] = 0
 
-patient_df[num_cols] = scaler.transform(patient_df[num_cols])
 patient_df = patient_df[x_train.columns]
 
-print("\nPatient features (after preprocessing):")
+print("\nPatient features (raw before pipeline preprocessing):")
 print(patient_df.to_string(index=False))
 
-if best_method == "KNN":
-    best_model = knn_best
-elif best_method == "LDA":
-    best_model = lda_best
-else:
-    best_model = logit_best
-
+best_model = fitted_models[best_method]
 prediction = best_model.predict(patient_df)[0]
 probability = best_model.predict_proba(patient_df)[0]
 
@@ -328,3 +347,4 @@ print(f"\nUsing best classifier: {best_method}")
 print(f"Prediction: {'Heart Disease (Yes)' if prediction == 1 else 'No Heart Disease (No)'}")
 print(f"Probability of heart disease: {probability[1]:.4f}")
 print(f"Probability of no heart disease: {probability[0]:.4f}")
+
